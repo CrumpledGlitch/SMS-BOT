@@ -1,5 +1,6 @@
-SMS bot written in python. 
+##SMS bot written in python. 
 
 Feature list: 
-- Check price of Crypto Currency (Nano)
-- Claim some free Nano from built in faucet
+!price - Check price of Crypto Currency (Nano)
+!claim - Claim some free Nano from built in faucet
+!idea - Random Business idea 
