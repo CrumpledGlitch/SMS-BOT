@@ -1,4 +1,6 @@
-##SMS bot written in python. 
+## SMS bot written in python. 
+
+This project uses Twilio to send and receive SMS  
 
 Feature list: 
 !price - Check price of Crypto Currency (Nano)
