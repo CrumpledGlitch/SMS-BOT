@@ -1,0 +1,217 @@
+#Bot with multiple features
+import os
+from flask import Flask, request, redirect
+from twilio.twiml.messaging_response import MessagingResponse
+import requests
+from requests import Request, Session
+from twilio.rest import Client
+import json
+import time
+import re
+
+
+
+app = Flask(__name__)
+
+# CONSTANTS INFO STORED TO STOP FAUCET ABUSE
+number_file_path = "saved_numbers.json"
+time_window = 60 #seconds since last claim (disallow if less)
+address_file_path = "saved_addresses.json"
+
+
+# read saved numbers from json file
+saved_numbers = []
+
+try:
+    with open(number_file_path) as f:
+        saved_numbers = json.load(f)
+    if len(saved_numbers) > 0:
+        print("Saved numbers restored from file")
+    else:
+        saved_numbers = []
+except Exception as e:
+    print("Error reading json file", e)
+    pass
+
+# read saved addresses from json file
+saved_addresses = []
+
+try:
+    with open(address_file_path) as f:
+        saved_addresses = json.load(f)
+    if len(saved_addresses) > 0:
+        print("Saved addresses restored from file")
+    else:
+        saved_addresses = []
+except Exception as e:
+    print("Error reading json file", e)
+    pass
+
+@app.route("/")
+def hello():
+    return"<h1 style='color:blue'>What are you doing here?</h1>"
+
+
+@app.route("/sms", methods=['GET', 'POST'])
+def sms_reply():
+    msg = request.form.get('Body')
+    sender = request.form.get('From')
+    resp = MessagingResponse()
+    valid_address = False
+    address = ""
+
+    if msg == "!price":
+        url = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest'
+        parameters = {
+                'id':'1567'
+                }
+        headers = {
+                'Accepts':'application/json',
+                'X-CMC_PRO_API_KEY':' API KEY GOES HERE',
+                }
+        session = Session()
+        session.headers.update(headers)
+        response = session.get(url, params=parameters)
+        data = response.json()
+        price = data["data"]["1567"]["quote"]["USD"]["price"]
+
+        resp.message("The current  price of nano is " + str(price) + " USD")
+
+    elif msg == "Hello":
+        resp.message("Hi")
+
+    elif msg =="!help":
+        resp.message("Here are a few features I can do!\n!price - Shows the price of 1 Nano\n!claim - shows how you can claim some free Nano\n!idea - generates a random business idea\n!iss - Current location of International Space Station\n!advice - Receive a random bit of advice")
+
+    elif msg =="!idea":
+        thisforthat = requests.get('http://itsthisforthat.com/api.php?json')
+        this= thisforthat.json()["this"]
+        that= thisforthat.json()["that"]
+        resp.message(this +" for " + that)
+
+    elif msg =="!iss":
+        iss_location = requests.get("http://api.open-notify.org/iss-now.json")
+        lat = iss_location.json()["iss_position"]["latitude"]
+        lon = iss_location.json()["iss_position"]["longitude"]
+        resp.message("Current location of International Space Station :\n\nLatitude: "+lat+" longitude: "+ lon+"\n View on map : https://www.google.com/maps/place/"+lat+","+lon)
+
+    elif msg == "!advice":
+        advice = requests.get("https://api.adviceslip.com/advice")
+        slip = advice.json()["slip"]["advice"]
+        resp.message(slip)
+
+
+
+
+    elif msg == "!claim":
+        # check if number exist and should be blocked
+        blocked = False
+        exists = False
+        number_count = 0
+        for sen in saved_numbers:
+            if sender == sen['sender']:
+                exists = True
+                if float(sen['time']) > time.time() - time_window:
+                    blocked = True
+                break
+            number_count += 1
+
+        # save to list if not existing number
+        if not exists:
+            print("Number does not exist, saving")
+            saved_numbers.append({"sender": str(sender), "time": time.time()})
+
+        # it does exist and was not blocked, only update timestamp
+        if exists and not blocked:
+            print("Number exist, updating timestamp")
+            saved_numbers[number_count] = {"sender": str(sender), "time": time.time()}
+
+        try:
+            with open(number_file_path, 'w') as f:
+                json.dump(saved_numbers, f)
+        except Exception as e:
+            print("Could not save numbers to file",e)
+
+        # claim has been made too fast
+        if blocked:
+            resp.message("You have already trigered a claim with " + str(sender) + " within the last " + str(time_window) + " seconds")
+            print(str(sender) + " is spamming!")
+            return str(resp)
+        else:
+            resp.message(
+                "Hey, looks like you're interested in Nano, download Natrium from your devices app store or visit https://natrium.io. Once installed setup the app following its instructions. (make sure you save your seed, this is important) Once setup click receive, copy the address and text it to this number.")
+            print(str(sender) + " started to claim")
+##
+# Sending Nano to address if valid
+##
+    elif msg.find('nano_') != -1:
+        hex = msg.split("nano_", 1)[1][:60]
+        try:
+            pattern = re.compile("[A-Za-z0-9]+")
+            if pattern.fullmatch(hex) and len(hex) == 60:
+                valid_address = True
+                address = "nano_" + hex
+            else:
+                print("Bad address")
+        except:
+            print("Bad address")
+
+        if valid_address:
+             print("Address Found: " + address)
+             # check if address exist and should be blocked
+             blocked = False
+             exists = False
+             number_count = 0
+             for addr in saved_addresses:
+                 if address == addr['address']:
+                     exists = True
+                     if float(addr['time']) > time.time() - time_window:
+                         blocked = True
+                     break
+                 number_count += 1
+
+             #save to list if not existing address
+
+             if not exists:
+                 print("Address does not exist, saving")
+                 saved_addresses.append({"address": address, "time": time.time()})
+
+                 # it does exist and was not blocked, only update timestamp
+             if exists and not blocked:
+                 print("Address exist, updating timestamp")
+                 saved_addresses[number_count] = {"address": address, "time": time.time()}
+             try:
+                 with open(address_file_path, 'w') as f:
+                     json.dump(saved_addresses, f)
+             except Exception as e:
+                 print("Could not save address to file",e)
+
+
+            # claim has been made too fast
+             if blocked:
+                 resp.message("You have already claimed Nano with " + address + " within " + str(time_window) + " seconds")
+                 print(address + " is spamming!")
+
+                 return str(resp)
+
+             else:
+
+                 print("Address : " + address + " belongs to " + str(sender))
+                 print("sending Funds")
+
+                 requests.post("http://127.0.01:11338",json={"action": "send", "wallet": "350d2950-cdbf-4048-aaf1-06d04975bba9","source": "nano_3p8ub6meu51awgx7hxt6woiuzzecu5fn1cpyxatyftkgez15zctgjnf4andg","destination": address, "amount": "10000000000000000000000000"})
+                 resp.message("You have just been sent some Nano, to find out more visit https://nano.org")
+                    
+    else:
+
+        resp.message("Hmm, something is not quite right here.\nPlease check the format of your message, only include the command with no spaces or extra characters.\nTo check all avalible commands message '!help'")
+
+    return str(resp)
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0')
+    app.run(debug=True)
+
+
+
+
